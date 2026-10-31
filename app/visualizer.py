@@ -39,16 +39,16 @@ BAND_EDGES = np.geomspace(50, 14000, 9)
 
 # 风格族:调色板、场景池、频闪、速度、过渡节奏都不同
 PROFILES = {
-    "dance": dict(name="舞曲", hue=(0.0, 1.0), sat=1.0, gain=1.0, speed=1.0, fade=0.5, flash_gap=0.34, switch=14.0,
+    "dance": dict(name="舞曲", hue=(0.0, 1.0), sat=1.0, gain=1.3, speed=1.0, fade=0.5, flash_gap=0.34, switch=14.0,
                   pools={"calm": ["plasma", "tunnel", "mirror"], "groove": ["spectrum", "ripple", "scanner", "fire", "mirror"],
                          "peak": ["burst", "ripple", "tunnel", "fire", "scanner"]}),
-    "groove": dict(name="律动", hue=(0.92, 0.30), sat=0.95, gain=0.95, speed=0.85, fade=0.7, flash_gap=0.6, switch=16.0,
+    "groove": dict(name="律动", hue=(0.92, 0.30), sat=0.95, gain=1.25, speed=0.85, fade=0.7, flash_gap=0.6, switch=16.0,
                    pools={"calm": ["mirror", "plasma", "ripple"], "groove": ["spectrum", "ripple", "mirror", "scanner", "fire"],
                           "peak": ["fire", "ripple", "scanner", "spectrum"]}),
-    "mellow": dict(name="抒情", hue=(0.85, 0.35), sat=0.75, gain=0.8, speed=0.55, fade=1.3, flash_gap=9.0, switch=22.0,
+    "mellow": dict(name="抒情", hue=(0.85, 0.35), sat=0.75, gain=1.1, speed=0.55, fade=1.3, flash_gap=9.0, switch=22.0,
                    pools={"calm": ["plasma", "mirror"], "groove": ["plasma", "ripple", "mirror", "tunnel"],
                           "peak": ["ripple", "mirror", "plasma", "tunnel"]}),
-    "ambient": dict(name="氛围", hue=(0.58, 0.27), sat=0.65, gain=0.75, speed=0.4, fade=2.0, flash_gap=9.0, switch=30.0,
+    "ambient": dict(name="氛围", hue=(0.58, 0.27), sat=0.65, gain=1.05, speed=0.4, fade=2.0, flash_gap=9.0, switch=30.0,
                     pools={"calm": ["plasma", "tunnel"], "groove": ["plasma", "tunnel"], "peak": ["plasma", "tunnel", "mirror"]}),
 }
 
@@ -104,6 +104,8 @@ class Analyzer:
         self.e_fast = self.e_slow = 0.0
         self.e_ref = 1e-3
         self.quiet = 0
+        self.mood_state, self.mood_n, self.mood_age = "groove", 0, 0
+        self.amb_n = 0
         self.eh = collections.deque(maxlen=FPS * 10)     # 近 10 秒的特征历史
         self.bh = collections.deque(maxlen=FPS * 10)
         self.style = "groove"
@@ -161,7 +163,7 @@ class Analyzer:
                 self.clicks += 1
         self.peak = np.maximum(np.maximum(out, self.guard), self.peak * 0.998)
         norm = np.clip(out / self.peak, 0, 1)
-        bands = norm ** 0.75
+        bands = norm ** 0.6
         energy = float(np.mean(bands))
         # 节拍:只看低频起音
         onset = max(0.0, kick - self.prev_kick)
@@ -181,15 +183,27 @@ class Analyzer:
         self.e_fast += (energy - self.e_fast) * (1 - math.exp(-1 / FPS / 1.0))
         self.e_slow += (energy - self.e_slow) * (1 - math.exp(-1 / FPS / 10.0))
         ratio = self.e_fast / max(self.e_slow, 0.05)
-        self.quiet = self.quiet + 1 if self.e_fast < 0.04 else 0
+        self.quiet = self.quiet + 1 if self.e_fast < 0.07 else 0
         if self.quiet > 2 * FPS:     # 持续 2 秒几乎无声才算"无音乐",避免一闪一闪地切换
-            mood = "idle"
-        elif ratio > 1.25 or self.e_fast > 0.62:
-            mood = "peak"
-        elif ratio < 0.6 or self.e_fast < 0.22:
-            mood = "calm"
+            raw, mood = "idle", "idle"
+            self.mood_state, self.mood_n, self.mood_age = "groove", 0, 0
         else:
-            mood = "groove"
+            if ratio > 1.25 or self.e_fast > 0.62:
+                raw = "peak"
+            elif ratio < 0.6 or self.e_fast < 0.22:
+                raw = "calm"
+            else:
+                raw = "groove"
+            # 滞回:新心情要持续一段时间才采纳,且距上次切换至少 8 秒
+            self.mood_age += 1
+            if raw == self.mood_state:
+                self.mood_n = 0
+            else:
+                self.mood_n += 1
+                need = {"peak": 3 * FPS, "calm": 5 * FPS, "groove": 5 * FPS}[raw]
+                if self.mood_n >= need and self.mood_age >= 8 * FPS:
+                    self.mood_state, self.mood_n, self.mood_age = raw, 0, 0
+            mood = self.mood_state
         self.eh.append(energy)
         self.bh.append(float(bands[:2].mean()))
         if mood != "idle":
@@ -211,16 +225,18 @@ class Analyzer:
             iv = np.diff(bt)
             med = float(np.median(iv))
             ratio = iv / med
-            reg = float(np.mean((np.abs(ratio - np.round(np.maximum(ratio, 1))) < 0.15)))
+            reg = float(np.mean((np.abs(ratio - np.round(np.maximum(ratio, 1))) < 0.22)))
             bpm = 60.0 / med
             while bpm < 70:
                 bpm *= 2
             while bpm > 180:
                 bpm /= 2
-        if len(bt) < 6 or reg < 0.55:
+        if len(bt) < 6 or reg < 0.45:
             cv = float(np.std(self.eh) / max(e_mean, 1e-3))     # 能量起伏小 = 持续铺底
-            label = "ambient" if (cv < 0.25 or e_mean < 0.15) else "mellow"
-        elif bpm >= 118 and reg >= 0.7:
+            recent60 = sum(1 for t in self.beat_times if t > now - 60.0)
+            # 氛围:近一分钟几乎没出现过节拍,且能量平稳;否则最多算抒情
+            label = "ambient" if (recent60 < 8 and (cv < 0.25 or e_mean < 0.15)) else "mellow"
+        elif bpm >= 118 and reg >= 0.6:
             label = "dance"
         else:
             label = "groove"
@@ -229,7 +245,7 @@ class Analyzer:
             self.cand, self.cand_n = None, 0
         elif label == self.cand:
             self.cand_n += 1
-            if self.cand_n >= 2:     # 连续两次(8 秒)一致才切换氛围
+            if self.cand_n >= (3 if label == "ambient" else 2):     # 连续 2 次(进入氛围要 3 次)一致才切换
                 self.style, self.cand, self.cand_n = label, None, 0
         else:
             self.cand, self.cand_n = label, 1
@@ -292,9 +308,9 @@ class Director:
             self.last_mood = mood
             return
         since = F["now"] - self.last_switch
-        if mood != self.last_mood and since > 3.0:
+        if mood != self.last_mood and since > 8.0:
             self._choose(F, "心情→" + mood)
-        elif F["beat"] and F["beat_count"] % 16 == 0 and since > 6.0:
+        elif F["beat"] and F["beat_count"] % 16 == 0 and since > 10.0:
             self._choose(F, "16拍")
         elif since > self.prof["switch"]:
             self._choose(F, "超时")
@@ -471,7 +487,7 @@ class Pad:
     def show(self, img, vu, scene_idx, locked_idx):
         want = {}
         for r, c, led in self.cells():
-            want[led] = tuple(int(round(63 * float(v) ** 1.35)) for v in img[r, c])
+            want[led] = tuple(int(round(63 * float(v) ** 1.0)) for v in img[r, c])
         for r in range(H):   # 右列:音量表
             lit = vu * H > r
             want[(r + 1) * 10 + 9] = (50, 36, 14) if lit else (0, 0, 0)
