@@ -1,0 +1,18 @@
+{
+ "mode": "throughput",
+ "in": "2- Launchpad MK2 0",
+ "out": "2- Launchpad MK2 1",
+ "time": "2026-10-26 16:11:30",
+ "result": {
+  "整盘80键/条": {
+   "frames": 50,
+   "seconds": 0.3541,
+   "fps": 141.2
+  },
+  "单键/条": {
+   "frames": 20,
+   "seconds": 0.0039,
+   "fps": 5171.7
+  }
+ }
+}

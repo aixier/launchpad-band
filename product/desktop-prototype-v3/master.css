@@ -1,0 +1,44 @@
+/* 大师演出页面的补充样式(基础样式在 style.css)。色彩纪律同 style.css:界面无彩色,颜色只属于音乐;青绿只由 JS 写入引导元素。 */
+body.idle .mbar .mood, body.idle .track { opacity: 0; }
+.mbar .mood { transition: opacity 0.8s; }
+.mood #lvlName { color: var(--ink); font-weight: 600; letter-spacing: 0.18em; }
+.mood .meter { width: 84px; }
+.mood .meter b { transition: width 0.4s; }
+
+/* 指挥台:大师演出里盘面是唯一的"手",放大一档;开场前它是整个界面里唯一在呼吸的东西 */
+.hud { width: clamp(300px, 29vw, 430px); }
+body.guided .hud { width: clamp(300px, 29vw, 430px); }
+.legend { color: var(--ink3); opacity: 0.8; letter-spacing: 0.04em; }
+body.idle .legend { opacity: 0; }
+.hint { transition: opacity 0.5s; }
+
+/* 时间线:当前场景 + 小节刻度(铺垫 4 / 蓄力 4 / DROP 16) */
+.track { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); display: flex; align-items: center; gap: 14px; z-index: 4; font-size: 12.5px; letter-spacing: 0.26em; color: var(--ink3); transition: opacity 0.8s; pointer-events: none; white-space: nowrap; }
+.track #sceneName { min-width: 3.4em; text-align: right; color: var(--ink2); }
+body[data-scene="drop"] .track #sceneName { color: var(--ink); font-weight: 700; }
+body[data-scene="build"] .track #sceneName { color: #ee6b4d; }
+.ticks { display: inline-flex; gap: 4px; }
+.ticks i { width: 14px; height: 3px; border-radius: 2px; background: var(--step2); }
+.ticks i.past { background: var(--ink3); }
+.ticks i.cur { background: var(--ink); }
+
+/* 升级的那一刻:一行很大的细字 + 一行解释,2.6 秒淡出;不挡舞台正中 */
+.lvl-title { position: absolute; left: 50%; bottom: 7%; transform: translateX(-50%); text-align: center; z-index: 6; pointer-events: none; opacity: 0; }
+.lvl-title b { display: block; font-size: clamp(28px, 3.6vw, 46px); font-weight: 300; letter-spacing: 0.36em; padding-left: 0.36em; text-shadow: 0 0 40px rgba(0, 0, 0, 0.7); }
+.lvl-title span { display: block; margin-top: 8px; font-size: 13.5px; color: var(--ink2); letter-spacing: 0.12em; }
+.lvl-title.on { animation: lvl 2.6s ease-out both; }
+@keyframes lvl { 0% { opacity: 0; transform: translate(-50%, 10px); } 12% { opacity: 1; transform: translate(-50%, 0); } 72% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -6px); } }
+
+/* 署名(CC BY 4.0 要求):只在用原曲片段时显示 */
+.credit { position: absolute; right: 22px; bottom: 16px; z-index: 4; font-size: 11.5px; color: var(--ink3); max-width: 38vw; text-align: right; line-height: 1.5; opacity: 0; transition: opacity 0.8s; }
+body[data-song="clip"] .credit { opacity: 0.85; }
+.credit a { color: var(--ink2); }
+
+/* 表演模式:界面退场,盘面留在角落;开场前/引导期间盘面不退场(那是唯一的提示) */
+body.perf .credit, body.perf .legend { opacity: 0 !important; }
+body.perf .mbar .brand, body.perf .mbar .actions, body.perf .mbar .mood { opacity: 0; pointer-events: none; }
+body.perf .track { opacity: 0.5; }
+body.perf .hud { opacity: 0.6; }
+body.perf.guided .hud, body.perf.idle .hud { opacity: 1; }
+@media (max-width: 760px) { .credit { display: none; } .track { bottom: auto; top: 58px; } .hud { width: 250px; } }
+@media (prefers-reduced-motion: reduce) { .lvl-title.on { animation: none; opacity: 1; } }

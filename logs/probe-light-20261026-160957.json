@@ -1,0 +1,9 @@
+{
+ "mode": "light",
+ "in": "2- Launchpad MK2 0",
+ "out": "2- Launchpad MK2 1",
+ "time": "2026-10-26 16:09:48",
+ "result": {
+  "note": "目视确认颜色/位置;设备不回读灯状态"
+ }
+}

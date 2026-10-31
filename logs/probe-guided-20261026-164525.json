@@ -1,0 +1,56 @@
+{
+ "mode": "guided",
+ "in": "2- Launchpad MK2 0",
+ "out": "2- Launchpad MK2 1",
+ "time": "2026-10-26 16:42:19",
+ "result": {
+  "results": [
+   {
+    "target": "左下角",
+    "expected": 11,
+    "got": null
+   },
+   {
+    "target": "右上角",
+    "expected": 88,
+    "got": null
+   },
+   {
+    "target": "左上角",
+    "expected": 81,
+    "got": null
+   },
+   {
+    "target": "右下角",
+    "expected": 18,
+    "got": null
+   },
+   {
+    "target": "顶排第 1 个圆键",
+    "expected": 104,
+    "got": null
+   },
+   {
+    "target": "顶排第 8 个圆键",
+    "expected": 111,
+    "got": null
+   },
+   {
+    "target": "右列最上圆键",
+    "expected": 89,
+    "got": null
+   },
+   {
+    "target": "右列最下圆键",
+    "expected": 19,
+    "got": {
+     "type": "note_on",
+     "num": 19,
+     "value": 127,
+     "ch": 1,
+     "rtt_ms": 10197
+    }
+   }
+  ]
+ }
+}

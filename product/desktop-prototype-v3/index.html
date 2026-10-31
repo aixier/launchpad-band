@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>随手乐队 · 虚拟舞台 v3</title>
+<meta name="color-scheme" content="dark">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app" id="app">
+  <div id="stage" class="stage"></div>
+  <div class="grade" aria-hidden="true"></div>
+
+  <div class="hw" id="hw" hidden></div>
+
+  <header class="topbar" id="topbar">
+    <div class="brand"><b>随手乐队</b><span>舞台</span></div>
+    <div class="mood" id="mood" role="status" aria-live="off">
+      <span id="moodStyle">安静</span><i class="dot-sep"></i><span id="moodSec">先跟着灯走</span>
+      <i class="meter" aria-hidden="true"><b id="meterFill"></b></i>
+    </div>
+    <div class="actions">
+      <button class="btn ghost" id="hwBtn" type="button" aria-pressed="false">跟打</button>
+      <button class="btn ghost" id="recBtn" type="button">录制</button>
+      <button class="btn ghost" id="perfBtn" type="button" aria-pressed="false">表演</button>
+      <button class="btn" id="menuBtn" type="button" aria-expanded="false" aria-controls="drawer">菜单</button>
+    </div>
+  </header>
+
+  <section class="hud" id="hud" aria-label="指挥台:Launchpad 镜像">
+    <div class="hint" id="hint" role="status"><i class="sw" id="sw" aria-hidden="true"></i><span id="hintText"></span></div>
+    <div class="readout"><b id="noteBig" class="idle">·</b><span id="noteSub">还没弹</span></div>
+    <div class="pad" id="pad"></div>
+    <div class="hud-foot"><button class="link" id="keysBtn" type="button" aria-pressed="false">显示键盘对应</button><span id="devline">灯盘:虚拟</span></div>
+  </section>
+
+  <aside class="drawer" id="drawer" hidden aria-label="菜单">
+    <div class="tabrow"><nav class="tabs" id="tabs" role="tablist"></nav><button class="btn ghost small" id="drawerClose" type="button" aria-label="关闭菜单">×</button></div>
+    <div class="panel" id="panel"></div>
+  </aside>
+
+  <div class="start" id="start">点一下左下角的盘面,或按键盘字母键,开始出声</div>
+  <div class="exit-perf" id="exitPerf">Esc 退出表演</div>
+  <div class="nogl" id="nogl" hidden></div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="vendor/three.min.js"></script>
+<script src="audio.js"></script>
+<script src="pad.js"></script>
+<script src="director.js"></script>
+<script src="stage.js"></script>
+<script src="views.js"></script>
+<script src="charts.js"></script>
+<script src="highway.js"></script>
+<script src="hwview.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+# 无头浏览器临时配置(几百 MB,每次自检重新生成)
+.prof-*/
+# 压缩包副本(mp3 已在 testdata 内)
+testdata/**/*.zip
+.DS_Store
+Thumbs.db
+# 自检生成的截图与结果(可由 tools/ 下脚本重新生成)
+product/desktop-prototype-v3/tools/shots*/
+product/desktop-prototype-v3/tools/results/
