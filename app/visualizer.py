@@ -39,16 +39,16 @@ BAND_EDGES = np.geomspace(50, 14000, 9)
 
 # 风格族:调色板、场景池、频闪、速度、过渡节奏都不同
 PROFILES = {
-    "dance": dict(name="舞曲", hue=(0.0, 1.0), sat=1.0, gain=1.3, speed=1.0, fade=0.5, flash_gap=0.34, switch=14.0,
+    "dance": dict(name="舞曲", hue=(0.0, 1.0), sat=1.0, gain=1.4, speed=1.0, fade=0.5, flash_gap=0.34, switch=14.0,
                   pools={"calm": ["plasma", "tunnel", "mirror"], "groove": ["spectrum", "ripple", "scanner", "fire", "mirror"],
                          "peak": ["burst", "ripple", "tunnel", "fire", "scanner"]}),
-    "groove": dict(name="律动", hue=(0.92, 0.30), sat=0.95, gain=1.25, speed=0.85, fade=0.7, flash_gap=0.6, switch=16.0,
+    "groove": dict(name="律动", hue=(0.92, 0.30), sat=0.95, gain=1.35, speed=0.85, fade=0.7, flash_gap=0.6, switch=16.0,
                    pools={"calm": ["mirror", "plasma", "ripple"], "groove": ["spectrum", "ripple", "mirror", "scanner", "fire"],
                           "peak": ["fire", "ripple", "scanner", "spectrum"]}),
-    "mellow": dict(name="抒情", hue=(0.85, 0.35), sat=0.75, gain=1.1, speed=0.55, fade=1.3, flash_gap=9.0, switch=22.0,
+    "mellow": dict(name="抒情", hue=(0.85, 0.35), sat=0.85, gain=1.25, speed=0.55, fade=1.3, flash_gap=9.0, switch=22.0,
                    pools={"calm": ["plasma", "mirror"], "groove": ["plasma", "ripple", "mirror", "tunnel"],
                           "peak": ["ripple", "mirror", "plasma", "tunnel"]}),
-    "ambient": dict(name="氛围", hue=(0.58, 0.27), sat=0.65, gain=1.05, speed=0.4, fade=2.0, flash_gap=9.0, switch=30.0,
+    "ambient": dict(name="氛围", hue=(0.58, 0.27), sat=0.8, gain=1.2, speed=0.4, fade=2.0, flash_gap=9.0, switch=30.0,
                     pools={"calm": ["plasma", "tunnel"], "groove": ["plasma", "tunnel"], "peak": ["plasma", "tunnel", "mirror"]}),
 }
 
@@ -88,6 +88,7 @@ class Analyzer:
         self.kick_idx = np.where((f >= 50) & (f < 205))[0]
         self.centroid_f = f
         self.cal = []
+        self.loose = False
         self.floor = None
         self.floor_cal = None
         self.hist = collections.deque(maxlen=3)
@@ -139,7 +140,13 @@ class Analyzer:
         if self.floor is None:
             self.cal.append(X)
             if len(self.cal) >= self.CAL_FRAMES:
-                m = np.median(np.array(self.cal), axis=0)
+                arr = np.array(self.cal)
+                tot = arr[:, 4:200].sum(axis=1)       # 校准段的总能量:风扇平稳(p90/p10≈1.3),有音乐则起伏大
+                self.loose = float(np.percentile(tot, 90) / max(np.percentile(tot, 10), 1e-9)) > 1.8
+                if self.loose:    # 校准时音乐没停:改用逐频点最小值当底噪,并放宽扣除
+                    m = arr.min(axis=0)
+                else:
+                    m = np.median(arr, axis=0)
                 self.floor_cal = m * 1.3 + 1e-4
                 self.floor = self.floor_cal.copy()
                 nb = np.array([self.floor[ix].sum() for ix in self.idx])
@@ -149,9 +156,9 @@ class Analyzer:
                 self.kick_peak = self.kick_guard
             return self._idle(now)
         floor = self.floor if self.filt else np.zeros_like(self.floor)
-        clean = np.maximum(0.0, X - 2.2 * floor) if self.filt else X
+        clean = np.maximum(0.0, X - (1.2 if self.loose else 2.2) * floor) if self.filt else X
         if self.filt:   # 底噪缓慢适应(风扇变速),上限 2.5 倍
-            self.floor = np.clip(np.minimum(X, self.floor * 1.0012), self.floor_cal * 0.7, self.floor_cal * 2.5)
+            self.floor = np.clip(np.minimum(X, self.floor * 1.0012), self.floor_cal * (0.05 if self.loose else 0.7), self.floor_cal * 2.5)
         band = np.array([clean[ix].sum() for ix in self.idx])
         kick = float(clean[self.kick_idx].sum())
         self.hist.append(band)
@@ -334,9 +341,12 @@ class Director:
         img = self._scene(self.cur, F, dt)
         if self.fade < 1.0 and self.prev:
             img = img * self.fade + self._scene(self.prev, F, 0.0, passive=True) * (1 - self.fade)
+        # 保色相的增益:超出 1 的整体缩回(不是各通道各自截断,否则高亮会变白),再加对比曲线拉开明暗
+        img = img * self.prof["gain"]
+        img = img / np.maximum(1.0, img.max(axis=-1, keepdims=True))
         lum = img.max(axis=-1, keepdims=True)
-        img = (lum * (1 - self.prof["sat"]) + img * self.prof["sat"]) * self.prof["gain"]
-        return np.clip(img, 0, 1)
+        img = lum * (1 - self.prof["sat"]) + img * self.prof["sat"]
+        return np.clip(img, 0, 1) ** 1.1
 
     def _idle(self, F):
         t = F["now"]
@@ -358,7 +368,7 @@ class Director:
             frac = h[c] - full
             for r in range(H):
                 if r < full:
-                    v = 1.0
+                    v = 0.3 + 0.7 * (r + 1) / (full + 1)
                 elif r == full:
                     v = frac
                 else:
@@ -376,7 +386,7 @@ class Director:
         d = np.abs(self.Y - 3.5)
         img = np.zeros((H, W, 3))
         for c in range(W):
-            v = np.clip(F["bands"][c] * 4.2 - d[:, c] + 0.3, 0, 1)
+            v = np.clip(F["bands"][c] * 4.2 - d[:, c] + 0.3, 0, 1) * (0.45 + 0.55 * d[:, c] / 3.5)
             img[:, c] = hsv(self.pal(self.hue + c * 0.09 + d[:, c] * 0.03), 1.0, v)
         return img
 
@@ -408,7 +418,7 @@ class Director:
              np.sin((self.X + self.Y) * 0.6 + t * 0.7) +
              np.sin(np.hypot(self.X - 3.5, self.Y - 3.5) * 0.9 - t * 1.3)) / 4.0
         v = 0.5 + 0.5 * v
-        br = 0.18 + 0.82 * np.clip(F["energy"] * 1.4, 0, 1) * (0.4 + 0.6 * v)
+        br = 0.04 + 0.96 * np.clip(F["energy"] * 1.4, 0, 1) * v ** 2
         if F["beat_age"] < 0.15:
             br = np.clip(br + 0.25 * (1 - F["beat_age"] / 0.15), 0, 1)
         return hsv(self.pal(self.hue + v * 0.35 + F["centroid"] * 0.2), 1.0, br)
@@ -458,7 +468,7 @@ class Director:
         if not passive:
             self.flash *= math.exp(-6.0 * dt)
         dist = np.hypot(self.X - 3.5, self.Y - 3.5)
-        img = hsv(self.pal(self.flash_hue + dist * 0.04), 1.0 - 0.5 * self.flash, self.flash * 0.9 * (1 - dist / 9.0))
+        img = hsv(self.pal(self.flash_hue + dist * 0.04), 1.0 - 0.2 * self.flash, self.flash * 0.9 * (1 - dist / 9.0))
         img = np.maximum(img, self.s_spectrum(F, 0.0, True) * 0.35)
         return img
 
@@ -605,7 +615,8 @@ def run_live(a):
                 F = ana.step(now)
                 if not announced and not F["calibrating"]:
                     announced = True
-                    print("校准完成,现在可以放音乐了。", flush=True)
+                    print("校准完成,现在可以放音乐了。" if not ana.loose else
+                          "校准时检测到已有音乐在播:改用宽松模式(风扇过滤较弱,音乐停顿时会自动学到真正的底噪)。", flush=True)
                 img = dirc.render(F, dt)
                 if pad:
                     if pad.inp:
