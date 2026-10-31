@@ -1,3 +1,78 @@
+# 随手乐队 · Novation Launchpad Mini MK2
+
+用一台 Novation Launchpad Mini MK2,做面向零基础用户的音乐玩具:AI 乐队伴奏、灯光引导跟弹、跟着歌弹,以及**用电脑麦克风/内录听音乐、让 Launchpad 的 RGB 灯阵表达音乐**的效果板。
+
+> **开源状态:目前是私有仓库,尚未选定开源许可证(没有 LICENSE 文件)。** 仓库内含第三方内容,公开前要处理:Novation 驱动安装包与官方 PDF(版权属原厂)、测试曲目《Born Again》(CC BY 4.0,须署名,见 `testdata/MANIFEST.md`)、Three.js(MIT,见 `product/desktop-prototype-v3/vendor/`)。
+
+## 快速开始(Windows 10/11,从驱动到启动)
+
+### 0. 你需要
+- Novation Launchpad Mini **MK2**(USB 枚举为 `Launchpad MK2`,`VID_1235 PID_0069`)和一根能传数据的 USB 线。
+- Windows 电脑,Python **3.10**。
+- 效果板的麦克风模式需要电脑有麦克风;内录模式不需要。
+
+### 1. 安装驱动
+1. 以管理员身份运行 `drivers/novationusbmidi_2.30.0_84.exe`,按提示安装。
+   - 校验(PowerShell):`Get-FileHash drivers\novationusbmidi_2.30.0_84.exe -Algorithm SHA256`,应为 `1D783456CDBD46F3E9595F60C2C6A247BFAF13BA7C50567910AD5A9214C6A134`。
+   - 本项目是在装了这个驱动之后验证的;Windows 自带的 USB-MIDI 驱动理论上也能识别,但**没有单独验证过**。
+2. 安装后**重新拔插 USB**。设备管理器里应出现 `Launchpad MK2`(声音、视频和游戏控制器),没有黄色感叹号。
+3. 若设备显示为 **VMware 的黄色感叹号设备(错误 43)**:是 VMware USB 仲裁服务把它抢走了。以管理员身份停止 `VMUSBArbService`(必要时设为手动),再拔插 USB。
+
+### 2. 准备 Python 环境
+```powershell
+cd home-items\novation-launchpad-mini-mk2
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+```
+
+### 3. 确认电脑能看到 Launchpad
+```powershell
+.venv\Scripts\python -c "import mido; print(mido.get_input_names(), mido.get_output_names())"
+```
+输出里要有 `... Launchpad MK2 ...`。看不到:换 USB 口/线,再看第 1 步。再做一次亮灯测试(完成后自动熄灯):
+```powershell
+.venv\Scripts\python tools\lp_probe.py light
+```
+**注意**:不要向设备发送引导加载程序(bootloader)类 SysEx,会让它进入固件升级模式。
+
+### 4. 启动
+**效果板**(麦克风或内录听音乐,Launchpad 变成音乐灯光):
+- 双击 `launchers\mic.bat`(监听外放的音乐)或 `launchers\loopback.bat`(内录电脑播放的声音,戴耳机用)。也可在桌面建这两个文件的快捷方式,起始位置设为本目录。
+- 麦克风模式:**先别放音乐、别敲键盘,等 Launchpad 上橙色扫描条消失**(约 2.5 秒,在听风扇底噪),再放音乐。音乐一直在播也能用,会自动改用宽松模式。
+- 顶排 8 个键锁定场景(再按一次回到自动),右列是音量表。
+- 命令行:`.venv\Scripts\python app\visualizer.py [--source loop] [--list] [--mic 编号]`;离线自测:`app\visualizer.py --selftest 歌曲.mp3`。
+
+**随手乐队演示**(AI 乐队 + 灯光引导跟弹):
+```powershell
+.venv\Scripts\python app\playground.py --seconds 600
+# 跟着歌弹(自带测试曲目):
+.venv\Scripts\python app\playground.py --seconds 600 --track "testdata\born-again\radionarcotix x Decktonic - Born Again - CC BY 4.0\radionarcotix x Decktonic - Born Again.mp3"
+```
+开始时整盘是白的,**青绿色慢闪的键就是下一步要按的键**。
+
+**桌面原型**(不需要设备,Chrome/Edge 双击打开,无需联网):`product\desktop-prototype-v3\index.html`(舞台、跟打),`master.html`(大师演出,键盘 `A S D F J K L ;`,空格 = DROP)。
+
+### 5. 测试
+```powershell
+.venv\Scripts\python tests\test_band.py
+```
+
+### 常见问题
+| 现象 | 原因与处理 |
+|---|---|
+| 找不到 Launchpad / MIDI 端口为空 | 重新拔插;换口;确认第 1 步驱动;设备管理器里有无感叹号 |
+| 发 MIDI 时报 `error preparing sysex header` | USB 瞬断。效果板会自动重开端口;仍失败就重新拔插 |
+| 没声音 | Windows 自带 GS 音源延迟约 258 ms,本项目用自带合成器;检查系统默认输出设备 |
+| 效果板一直很暗 | 校准时若有大声噪声会偏暗;安静时重启一次 |
+| 内录没反应 | 内录取的是**系统默认输出设备**;外放的声音请用麦克风模式 |
+
+## 文档导航
+- `HANDOFF.md`:当前状态与待办。
+- `product/`:产品方案、体验设计、虚拟舞台与跟打模式设计。
+- 下面的「Novation Launchpad Mini MK2」及后文是**设备资料与实测总账**(协议、延迟、灯光语言规范)。
+
+---
+
 # Novation Launchpad Mini MK2
 
 8x8 网格 + 右侧 8 个场景键(▶◀▲▼ 上部四个方向键、Session/User 1/User 2/Mixer)+ 底部 8 个圆键。
