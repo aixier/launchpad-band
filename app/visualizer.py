@@ -29,23 +29,23 @@ import numpy as np
 
 H, W = 8, 8
 FPS = 30
-SCENES = ["spectrum", "mirror", "ripple", "plasma", "fire", "scanner", "tunnel", "burst"]
+SCENES = ["spectrum", "mirror", "ripple", "plasma", "fire", "layers", "tunnel", "burst"]
 POOLS = {
     "calm": ["plasma", "tunnel", "mirror"],
-    "groove": ["spectrum", "ripple", "scanner", "fire", "mirror"],
-    "peak": ["burst", "ripple", "tunnel", "fire", "scanner"],
+    "groove": ["spectrum", "ripple", "layers", "fire", "mirror"],
+    "peak": ["burst", "ripple", "tunnel", "fire", "layers"],
 }
 BAND_EDGES = np.geomspace(50, 14000, 9)
 
 # 风格族:调色板、场景池、频闪、速度、过渡节奏都不同
 PROFILES = {
-    "dance": dict(name="舞曲", hue=(0.0, 1.0), sat=1.0, gain=1.4, speed=1.0, fade=0.5, flash_gap=0.34, switch=14.0,
-                  pools={"calm": ["plasma", "tunnel", "mirror"], "groove": ["spectrum", "ripple", "scanner", "fire", "mirror"],
-                         "peak": ["burst", "ripple", "tunnel", "fire", "scanner"]}),
-    "groove": dict(name="律动", hue=(0.92, 0.30), sat=0.95, gain=1.35, speed=0.85, fade=0.7, flash_gap=0.6, switch=16.0,
-                   pools={"calm": ["mirror", "plasma", "ripple"], "groove": ["spectrum", "ripple", "mirror", "scanner", "fire"],
-                          "peak": ["fire", "ripple", "scanner", "spectrum"]}),
-    "mellow": dict(name="抒情", hue=(0.85, 0.35), sat=0.85, gain=1.25, speed=0.55, fade=1.3, flash_gap=9.0, switch=22.0,
+    "dance": dict(name="舞曲", accent=1.0, hue=(0.0, 1.0), sat=1.0, gain=1.4, speed=1.0, fade=0.5, flash_gap=0.34, switch=14.0,
+                  pools={"calm": ["plasma", "tunnel", "mirror"], "groove": ["spectrum", "ripple", "layers", "fire", "mirror"],
+                         "peak": ["burst", "ripple", "tunnel", "fire", "layers"]}),
+    "groove": dict(name="律动", accent=0.8, hue=(0.92, 0.30), sat=0.95, gain=1.35, speed=0.85, fade=0.7, flash_gap=0.6, switch=16.0,
+                   pools={"calm": ["mirror", "plasma", "ripple"], "groove": ["spectrum", "ripple", "mirror", "layers", "fire"],
+                          "peak": ["fire", "ripple", "layers", "spectrum"]}),
+    "mellow": dict(name="抒情", accent=0.3, hue=(0.85, 0.35), sat=0.85, gain=1.25, speed=0.55, fade=1.3, flash_gap=9.0, switch=22.0,
                    pools={"calm": ["plasma", "mirror"], "groove": ["plasma", "ripple", "mirror", "tunnel"],
                           "peak": ["ripple", "mirror", "plasma", "tunnel"]}),
     "ambient": dict(name="氛围", hue=(0.58, 0.27), sat=0.8, gain=1.2, speed=0.4, fade=2.0, flash_gap=9.0, switch=30.0,
@@ -74,6 +74,30 @@ def pal(h):
 
 
 # ───────────────────────── 音频分析 ─────────────────────────
+class Onset:
+    """单个乐器的起音检测:自适应阈值 + 不应期。"""
+
+    def __init__(self, gap, k=2.0, floor_rel=0.12):
+        self.gap, self.k, self.floor_rel = gap, k, floor_rel
+        self.prev, self.last = 0.0, -9.0
+        self.h = collections.deque(maxlen=FPS * 2)
+        self.peak = 1e-9
+        self.age = 9.0
+
+    def update(self, level, now, guard=0.0):
+        on = max(0.0, level - self.prev)
+        self.prev = level
+        self.peak = max(guard, level, self.peak * 0.997)
+        self.h.append(on)
+        hit = False
+        if len(self.h) > 20:
+            a = np.array(self.h)
+            if on > a.mean() + self.k * a.std() and on > self.floor_rel * self.peak and now - self.last > self.gap:
+                hit, self.last = True, now
+        self.age = now - self.last
+        return hit
+
+
 class Analyzer:
     N = 2048
     CAL_FRAMES = int(2.5 * FPS)
@@ -107,6 +131,14 @@ class Analyzer:
         self.quiet = 0
         self.mood_state, self.mood_n, self.mood_age = "groove", 0, 0
         self.amb_n = 0
+        f = self.centroid_f
+        self.snare_idx = np.where((f >= 1700) & (f < 4500))[0]
+        self.low_idx = np.where((f >= 40) & (f < 260))[0]
+        self.lead_idx = np.where((f >= 260) & (f < 1800))[0]
+        self.snare, self.hat = Onset(0.18, 2.0), Onset(0.07, 1.8)
+        self.pad_s, self.lead_x, self.lead_lvl, self.bass_pc, self.bass_lvl = 0.0, 0.5, 0.0, 0.0, 0.0
+        self.noisy = True      # 麦克风有键盘等尖峰要中值滤波;内录是干净的数字音频,不需要
+        self.inst_cnt = {"kick": 0, "snare": 0, "hat": 0}
         self.eh = collections.deque(maxlen=FPS * 10)     # 近 10 秒的特征历史
         self.bh = collections.deque(maxlen=FPS * 10)
         self.style = "groove"
@@ -130,6 +162,7 @@ class Analyzer:
         self.kick_guard = float(self.floor[self.kick_idx].sum()) * 3 + 1e-3
         self.peak = self.guard.copy()
         self.kick_peak = self.kick_guard
+        self.noisy = False
 
     @property
     def calibrating(self):
@@ -163,7 +196,7 @@ class Analyzer:
         kick = float(clean[self.kick_idx].sum())
         self.hist.append(band)
         out = band.copy()
-        if self.filt and len(self.hist) == 3:
+        if self.filt and self.noisy and len(self.hist) == 3:
             a, b, c = self.hist
             out[2:] = np.median(np.stack([a[2:], b[2:], c[2:]]), axis=0)   # 一帧延迟换去孤立尖峰
             if np.any(b[3:] > 3 * np.maximum(a[3:], c[3:]) + self.guard[3:]) and kick < 0.5 * self.kick_peak:
@@ -186,6 +219,31 @@ class Analyzer:
                 self.last_beat = now
                 self.beat_count += 1
                 self.beat_times.append(now)
+        # 分乐器:军鼓(鼓身+中高频噪声)、镲片(高频)、低音线(音高)、主旋律(音高/强弱)、铺底(缓变中频)
+        snare_lv = float(out[2] * 0.5 + clean[self.snare_idx].sum() / max(len(self.snare_idx), 1) * 4)
+        hat_lv = float(out[7] + 0.5 * out[6])
+        snare_hit = self.snare.update(snare_lv, now, float(self.guard[2:6].mean()))
+        hat_hit = self.hat.update(hat_lv, now, float(self.guard[6:].mean()))
+        if beat:
+            self.inst_cnt["kick"] += 1
+        self.inst_cnt["snare"] += int(snare_hit)
+        self.inst_cnt["hat"] += int(hat_hit)
+        low = clean[self.low_idx]
+        if low.max() > 4 * float(self.floor_cal[self.low_idx].mean()):
+            fb = float(self.centroid_f[self.low_idx[int(np.argmax(low))]])
+            self.bass_pc = (12 * math.log2(max(fb, 20.0) / 440.0) + 69) % 12 / 12.0
+        self.bass_lvl = float(bands[:2].mean())
+        lead = clean[self.lead_idx]
+        lead_tot = float(lead.sum())
+        peaky = float(lead.max() / (lead.mean() + 1e-9)) if lead_tot > 0 else 0.0
+        if peaky > 6.0 and lead_tot > 2 * float(self.guard[2:5].sum()):     # 有明显单一音高才跟踪(人声/主旋律)
+            fl = float(self.centroid_f[self.lead_idx[int(np.argmax(lead))]])
+            x = math.log2(fl / 260.0) / math.log2(1800.0 / 260.0)
+            self.lead_x += (min(1.0, max(0.0, x)) - self.lead_x) * 0.5
+            self.lead_lvl += (min(1.0, lead_tot / (float(self.peak[2:5].sum()) + 1e-9)) - self.lead_lvl) * 0.5
+        else:
+            self.lead_lvl *= 0.85
+        self.pad_s += (float(bands[3:6].mean()) - self.pad_s) * (1 - math.exp(-1 / FPS / 1.5))
         # 段落心情
         self.e_fast += (energy - self.e_fast) * (1 - math.exp(-1 / FPS / 1.0))
         self.e_slow += (energy - self.e_slow) * (1 - math.exp(-1 / FPS / 10.0))
@@ -221,7 +279,9 @@ class Analyzer:
         centroid = float(np.dot(w, np.arange(8)) / w.sum() / 7.0)
         return dict(bands=bands, energy=energy, beat=beat, beat_age=now - self.last_beat, beat_count=self.beat_count,
                     mood=mood, centroid=centroid, bass=float(bands[:2].mean()), mid=float(bands[2:5].mean()),
-                    high=float(bands[5:].mean()), now=now, calibrating=False, style=self.style, style_info=self.style_info)
+                    high=float(bands[5:].mean()), now=now, calibrating=False, style=self.style, style_info=self.style_info,
+                    snare=bool(snare_hit), hat=bool(hat_hit), snare_age=self.snare.age, hat_age=self.hat.age,
+                    bass_lvl=self.bass_lvl, bass_pc=self.bass_pc, lead_lvl=self.lead_lvl, lead_x=self.lead_x, pad=self.pad_s)
 
     def _update_style(self, now):
         """规则法风格识别:速度 + 节拍规律 + 低频占比 + 能量大小 → 舞曲/律动/抒情/氛围。"""
@@ -260,7 +320,8 @@ class Analyzer:
     def _idle(self, now):
         return dict(bands=np.zeros(8), energy=0.0, beat=False, beat_age=9.0, beat_count=self.beat_count, mood="idle",
                     centroid=0.5, bass=0.0, mid=0.0, high=0.0, now=now, calibrating=self.floor is None,
-                    style=self.style, style_info=self.style_info)
+                    style=self.style, style_info=self.style_info, snare=False, hat=False, snare_age=9.0, hat_age=9.0,
+                    bass_lvl=0.0, bass_pc=0.0, lead_lvl=0.0, lead_x=0.5, pad=0.0)
 
 
 # ───────────────────────── 效果导演 ─────────────────────────
@@ -286,6 +347,9 @@ class Director:
         self.scan_dir = 0
         self.fire_acc = 0.0
         self.log = []
+        self.sparkle = np.zeros((H, W))
+        self.snare_f = 0.0
+        self.lead_trail = np.zeros((H, W, 3))
         self.style = "groove"
         self.prof = PROFILES["groove"]
 
@@ -341,6 +405,17 @@ class Director:
         img = self._scene(self.cur, F, dt)
         if self.fade < 1.0 and self.prev:
             img = img * self.fade + self._scene(self.prev, F, 0.0, passive=True) * (1 - self.fade)
+        acc = self.prof.get("accent", 0.0)
+        if acc > 0 and self.cur != "layers":
+            if F["hat"]:
+                for _ in range(2):
+                    self.sparkle[int(self.rng.integers(0, H)), int(self.rng.integers(0, W))] = 1.0
+            if F["snare"]:
+                self.snare_f = 1.0
+            self.sparkle *= math.exp(-10.0 * dt)
+            self.snare_f *= math.exp(-9.0 * dt)
+            img = np.maximum(img, hsv(self.pal(self.hue + 0.15), 0.4, self.sparkle * 0.8 * acc))
+            img = img + hsv(self.pal(self.hue + 0.5), 0.8, np.full((H, W), self.snare_f * 0.18 * acc))
         # 保色相的增益:超出 1 的整体缩回(不是各通道各自截断,否则高亮会变白),再加对比曲线拉开明暗
         img = img * self.prof["gain"]
         img = img / np.maximum(1.0, img.max(axis=-1, keepdims=True))
@@ -460,6 +535,47 @@ class Director:
         if F["beat_age"] < 0.12:
             br = np.clip(br + 0.3 * (1 - F["beat_age"] / 0.12) * (1 - dist / 6), 0, 1)
         return hsv(self.pal(self.hue + dist * 0.07), 1.0, br)
+
+    def hsv_(self, h, s, v):
+        return hsv(self.pal(h), s, v)
+
+    def s_layers(self, F, dt, passive):
+        """按乐器分层:铺底=背景色雾,低音=底部两行(色随音高),底鼓=自底向上的光环,
+        军鼓=中线横扫,镲片=顶部星点,主旋律=跟着音高移动的亮点。"""
+        if not passive:
+            if F["beat"]:
+                self.rings.append([3.5, -0.5, F["now"], float(self.hue), 6.5])
+                self.rings = self.rings[-5:]
+            if F["snare"]:
+                self.snare_f = 1.0
+            self.snare_f *= math.exp(-9.0 * dt)
+            if F["hat"]:
+                for _ in range(3):
+                    self.sparkle[int(self.rng.integers(4, H)), int(self.rng.integers(0, W))] = 1.0
+            self.sparkle *= math.exp(-10.0 * dt)
+            self.lead_trail *= math.exp(-6.0 * dt)
+        img = np.zeros((H, W, 3))
+        img += self.hsv_(self.hue + 0.5, 0.8, 0.04 + 0.22 * F["pad"])[None, None, :]              # 铺底
+        for r in range(2):                                                                      # 低音
+            m = np.clip(F["bass_lvl"] * (W / 2.0) - np.abs(np.arange(W) - 3.5) + 0.5, 0, 1) * (1.0 - 0.45 * r)
+            img[r] = np.maximum(img[r], self.hsv_(np.full(W, 0.95 + 0.25 * F["bass_pc"]), 1.0, m))
+        for cx, cy, t0, hue, sp in self.rings:                                                  # 底鼓
+            age = F["now"] - t0
+            if 0 <= age < 1.2:
+                dist = np.hypot(self.X - cx, self.Y - cy)
+                m = np.exp(-((dist - sp * age) ** 2) / 0.8) * math.exp(-age * 2.2)
+                img = np.maximum(img, hsv(self.pal(hue + dist * 0.03), 1.0, m))
+        if self.snare_f > 0.02:                                                                 # 军鼓
+            m = np.exp(-((self.Y - 4.0) ** 2) / 0.5) * self.snare_f
+            img = np.maximum(img, hsv(self.pal(self.hue + 0.5), 0.75, m))
+        img = np.maximum(img, hsv(self.pal(self.hue + 0.12), 0.35, self.sparkle))              # 镲片
+        if F["lead_lvl"] > 0.12 and not passive:                                                # 主旋律
+            cx = F["lead_x"] * (W - 1)
+            cy = 3.0 + 3.0 * min(1.0, F["lead_lvl"])
+            d = np.hypot(self.X - cx, self.Y - cy)
+            self.lead_trail = np.maximum(self.lead_trail, hsv(self.pal(0.1 + F["lead_x"] * 0.7), 1.0,
+                                                              np.exp(-d ** 2 / 0.9) * min(1.0, 0.4 + F["lead_lvl"])))
+        return np.maximum(img, self.lead_trail)
 
     def s_burst(self, F, dt, passive):
         if F["beat"] and not passive and F["now"] - self.last_flash > self.prof["flash_gap"]:   # 全盘闪 ≤3 次/秒
@@ -630,9 +746,10 @@ def run_live(a):
                 if now - (stat_t - t_start) >= 2.0:
                     stat_t = time.perf_counter()
                     si = F["style_info"]
-                    print("%5.1fs 风格=%s(速度%s 规律%s) 心情=%-6s 场景=%-8s 能量=%.2f 节拍=%d" % (
-                        now, PROFILES[F["style"]]["name"], si.get("bpm", "-"), si.get("reg", "-"), F["mood"], dirc.cur,
-                        F["energy"], F["beat_count"]), flush=True)
+                    c = ana.inst_cnt
+                    print("%5.1fs 风格=%s(速度%s) 心情=%-6s 场景=%-8s 能量=%.2f | 鼓%d 军鼓%d 镲%d 旋律%.2f 低音%.2f" % (
+                        now, PROFILES[F["style"]]["name"], si.get("bpm", "-"), F["mood"], dirc.cur, F["energy"],
+                        c["kick"], c["snare"], c["hat"], F["lead_lvl"], F["bass_lvl"]), flush=True)
                 time.sleep(max(0.0, 1.0 / FPS - (time.perf_counter() - last)))
     finally:
         stop.set()
