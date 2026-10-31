@@ -4,6 +4,12 @@
 
 > **开源协议:MIT**(见 `LICENSE`)。第三方内容(Three.js、CC BY 4.0 测试曲目、Novation 驱动与文档)的归属和获取方式见 `NOTICE.md`。
 
+## 效果预览
+
+[![效果板演示(点击看带声音的视频)](docs/demo.gif)](docs/demo.mp4)
+
+> 实拍:Launchpad Mini MK2 跟着音乐变化的灯光(点图看完整 MP4,带声音)。
+
 ## 快速开始(Windows 10/11,从驱动到启动)
 
 ### 0. 你需要
