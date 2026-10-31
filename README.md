@@ -2,7 +2,7 @@
 
 用一台 Novation Launchpad Mini MK2,做面向零基础用户的音乐玩具:AI 乐队伴奏、灯光引导跟弹、跟着歌弹,以及**用电脑麦克风/内录听音乐、让 Launchpad 的 RGB 灯阵表达音乐**的效果板。
 
-> **开源状态:目前是私有仓库,尚未选定开源许可证(没有 LICENSE 文件)。** 仓库内含第三方内容,公开前要处理:Novation 驱动安装包与官方 PDF(版权属原厂)、测试曲目《Born Again》(CC BY 4.0,须署名,见 `testdata/MANIFEST.md`)、Three.js(MIT,见 `product/desktop-prototype-v3/vendor/`)。
+> **开源协议:MIT**(见 `LICENSE`)。第三方内容(Three.js、CC BY 4.0 测试曲目、Novation 驱动与文档)的归属和获取方式见 `NOTICE.md`。
 
 ## 快速开始(Windows 10/11,从驱动到启动)
 
@@ -12,8 +12,8 @@
 - 效果板的麦克风模式需要电脑有麦克风;内录模式不需要。
 
 ### 1. 安装驱动
-1. 以管理员身份运行 `drivers/novationusbmidi_2.30.0_84.exe`,按提示安装。
-   - 校验(PowerShell):`Get-FileHash drivers\novationusbmidi_2.30.0_84.exe -Algorithm SHA256`,应为 `1D783456CDBD46F3E9595F60C2C6A247BFAF13BA7C50567910AD5A9214C6A134`。
+1. 以管理员身份运行仓库自带的 `drivers/novationusbmidi_2.30.0_84.exe`(Novation 原厂驱动,说明见 `drivers/README.md`;最新版可到 Novation 官网下载)。
+   - 校验(PowerShell):`Get-FileHash <安装包> -Algorithm SHA256`;仓库自带的 `novationusbmidi_2.30.0_84.exe` 应为 `1D783456CDBD46F3E9595F60C2C6A247BFAF13BA7C50567910AD5A9214C6A134`。
    - 本项目是在装了这个驱动之后验证的;Windows 自带的 USB-MIDI 驱动理论上也能识别,但**没有单独验证过**。
 2. 安装后**重新拔插 USB**。设备管理器里应出现 `Launchpad MK2`(声音、视频和游戏控制器),没有黄色感叹号。
 3. 若设备显示为 **VMware 的黄色感叹号设备(错误 43)**:是 VMware USB 仲裁服务把它抢走了。以管理员身份停止 `VMUSBArbService`(必要时设为手动),再拔插 USB。

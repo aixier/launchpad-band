@@ -10,3 +10,4 @@ Thumbs.db
 # 自检生成的截图与结果(可由 tools/ 下脚本重新生成)
 product/desktop-prototype-v3/tools/shots*/
 product/desktop-prototype-v3/tools/results/
+*.pdf
